@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PromptPay Crypto Gateway</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              slate: {
+                50: '#f8fafc',
+                100: '#f1f5f9',
+                200: '#e2e8f0',
+                300: '#cbd5e1',
+                400: '#94a3b8',
+                500: '#64748b',
+                600: '#475569',
+                700: '#334155',
+                800: '#1e293b',
+                900: '#0f172a',
+                950: '#020617',
+              },
+              blue: {
+                50: '#eff6ff',
+                100: '#dbeafe',
+                200: '#bfdbfe',
+                300: '#93c5fd',
+                400: '#60a5fa',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                800: '#1e40af', // Primary Brand Color
+                900: '#1e3a8a', // Dark Navy
+                950: '#172554', // Deepest Navy
+              }
+            },
+            boxShadow: {
+              'formal': '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #f8fafc; /* Slate 50 */
+        color: #0f172a; /* Slate 900 */
+        font-family: 'Inter', sans-serif;
+      }
+      .dark body {
+        background-color: #020617; /* Slate 950 */
+        color: #f8fafc; /* Slate 50 */
+      }
+      .fintech-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0; /* Slate 200 */
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+      }
+      .dark .fintech-card {
+        background-color: #0f172a; /* Slate 900 */
+        border-color: #1e293b; /* Slate 800 */
+      }
+      .input-formal {
+        background-color: #ffffff;
+        border: 1px solid #cbd5e1; /* Slate 300 */
+        color: #0f172a; /* Slate 900 */
+        transition: all 0.2s ease-in-out;
+        border-radius: 4px; /* More squared off */
+      }
+      .dark .input-formal {
+        background-color: #0f172a; /* Slate 900 */
+        border-color: #334155; /* Slate 700 */
+        color: #f8fafc; /* Slate 50 */
+      }
+      .input-formal:focus {
+        border-color: #1e40af; /* Blue 800 */
+        box-shadow: 0 0 0 2px rgba(30, 64, 175, 0.1);
+        outline: none;
+      }
+      .dark .input-formal:focus {
+        border-color: #3b82f6; /* Blue 500 */
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+      }
+      /* Custom Scrollbar for logs */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f5f9; 
+      }
+      .dark .custom-scrollbar::-webkit-scrollbar-track {
+        background: #0f172a; 
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #cbd5e1; 
+        border-radius: 3px;
+      }
+      .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #334155; 
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "recharts": "https://esm.sh/recharts@^3.7.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-qr-code": "https://esm.sh/react-qr-code@^2.0.18",
+    "crc": "https://esm.sh/crc@^4.3.2"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

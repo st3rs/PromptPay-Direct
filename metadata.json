@@ -1,0 +1,5 @@
+{
+  "name": "PromptPay Crypto Gateway",
+  "description": "Production-ready fintech prototype for THB (PromptPay) to USDT swaps featuring a Provider Loop simulation, real-time pulse monitoring, and SEC-compliant logging visualizations.",
+  "requestFramePermissions": []
+}
