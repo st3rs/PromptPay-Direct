@@ -1,3 +1,4 @@
+
 import { Transaction, TransactionStatus, LogEntry, OrderBook } from '../types';
 import { generateHash } from '../utils/security';
 import { PROMPTPAY_ID, MAX_AUTO_APPROVE_USD } from '../constants';
@@ -77,9 +78,7 @@ export const MockBackend = {
       if (actualName.includes(expectedName) || expectedName.includes(actualName)) {
          addLog('KYC', `Logic Guard Passed: ${actualName} matches KYC record.`);
          
-         // Move to disbursement
-         currentTransaction.status = TransactionStatus.DISBURSING;
-         notify();
+         // Move to disbursement check
          MockBackend.processDisbursement();
       } else {
          addLog('KYC', `Logic Guard FAILED: ${actualName} does not match ${expectedName}. Freezing funds.`, 'CRITICAL');
@@ -90,14 +89,33 @@ export const MockBackend = {
   },
 
   processDisbursement: () => {
-    setTimeout(() => {
-      if (!currentTransaction) return;
-      
-      if (currentTransaction.amountUSDT > MAX_AUTO_APPROVE_USD) {
-          addLog('DISBURSER', `Amount exceeds $${MAX_AUTO_APPROVE_USD}. Halted for Multi-Sig Approval.`, 'WARN');
-          // In a real app, status would pause here. For proto, we auto approve with a warning log.
-      }
+    if (!currentTransaction) return;
 
+    if (currentTransaction.amountUSDT > MAX_AUTO_APPROVE_USD) {
+        addLog('DISBURSER', `Amount exceeds $${MAX_AUTO_APPROVE_USD}. Multi-Sig Approval Required.`, 'WARN');
+        currentTransaction.status = TransactionStatus.AWAITING_APPROVAL;
+        notify();
+        return;
+    }
+
+    currentTransaction.status = TransactionStatus.DISBURSING;
+    notify();
+    MockBackend.executeFinalSettlement();
+  },
+
+  approveTransaction: () => {
+    if (!currentTransaction || currentTransaction.status !== TransactionStatus.AWAITING_APPROVAL) return;
+    
+    addLog('DISBURSER', `Manual Approval received from Administrator. Proceeding to settlement.`, 'INFO');
+    currentTransaction.status = TransactionStatus.DISBURSING;
+    notify();
+    MockBackend.executeFinalSettlement();
+  },
+
+  executeFinalSettlement: () => {
+    setTimeout(() => {
+      if (!currentTransaction || currentTransaction.status !== TransactionStatus.DISBURSING) return;
+      
       // Simulate Blockchain
       addLog('DISBURSER', `Broadcasting TRC20 transfer of ₮${currentTransaction.amountUSDT} to ${currentTransaction.user.walletAddress}`);
       

@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { Transaction, LogEntry, TransactionStatus, Language, AppConfig } from '../types';
 import { MockBackend } from '../services/mockBackend';
 import { ConfigService } from '../services/configService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { RefreshCw, Terminal, History, Settings, Save, Server, Wallet, Link as LinkIcon, ExternalLink, Check, Activity, DollarSign, Percent, Smartphone, Calculator, RotateCcw, Banknote } from 'lucide-react';
+import { RefreshCw, Terminal, History, Settings, Save, Server, Wallet, Link as LinkIcon, ExternalLink, Check, Activity, DollarSign, Percent, Smartphone, Calculator, RotateCcw, Banknote, ShieldCheck } from 'lucide-react';
 import { THEME, TRANSLATIONS } from '../constants';
 
 const data = [
@@ -75,8 +76,6 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
   }, [simName, simAmount, isConfigChanged]);
 
   useEffect(() => {
-    // Robust link generation: Use current origin + pathname to ensure it works on any host/subpath
-    // Avoid /pay sub-route to prevent 404s on static hosts without SPA routing config
     const baseUrl = window.location.origin + window.location.pathname;
     const params = new URLSearchParams();
     if (linkAmount > 0) {
@@ -85,7 +84,6 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
     if (linkMemo && linkMemo.trim() !== '') {
         params.set('ref', linkMemo.trim());
     }
-    // Ensure we don't have a trailing ? if no params (though we default amt)
     const queryString = params.toString();
     setGeneratedLink(queryString ? `${baseUrl}?${queryString}` : baseUrl);
   }, [linkAmount, linkMemo]);
@@ -98,6 +96,10 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
     MockBackend.triggerIncomingTransfer(simAmount, simName, activeTx.referenceId);
   };
 
+  const approveTransaction = () => {
+    MockBackend.approveTransaction();
+  };
+
   const toggleHedge = () => {
     MockBackend.toggleAutoHedge();
     setReserves({...MockBackend.getOrderBook()});
@@ -106,7 +108,6 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
   const handleConfigChange = (key: keyof AppConfig, value: string | number) => {
     setEditConfig(prev => {
         const next = { ...prev, [key]: value };
-        // Check if actually changed from source of truth
         const hasChanges = Object.keys(next).some(k => next[k as keyof AppConfig] !== config[k as keyof AppConfig]);
         setIsConfigChanged(hasChanges);
         return next;
@@ -122,7 +123,6 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
   const resetConfig = () => {
      if (window.confirm("Reset configuration to default values?")) {
          ConfigService.reset();
-         // Subscription will handle state update
          setIsConfigChanged(false);
      }
   };
@@ -139,17 +139,15 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
     tx.status === TransactionStatus.COMPLETED || tx.status === TransactionStatus.FAILED
   );
 
-  // Helper for conditional styling of modified inputs
   const getInputStyle = (key: keyof AppConfig) => {
       const isModified = editConfig[key] !== config[key];
-      return `w-full h-7 text-[10px] px-2 border ${
+      return `w-full h-7 text-[10px] px-2 border transition-all duration-200 ${
           isModified 
-          ? 'border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-100' 
+          ? 'border-amber-400 dark:border-amber-600 border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-100 pl-3' 
           : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100'
-      } rounded-sm focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 outline-none transition-colors`;
+      } rounded-sm focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 outline-none`;
   };
 
-  // Calculate projected rate
   const projectedRate = editConfig.baseRate * (1 + editConfig.feePercent / 100);
 
   return (
@@ -320,7 +318,7 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Webhook Tool */}
+                {/* Webhook Tool & Manual Approval */}
                 <div className="border border-slate-300 dark:border-slate-800 rounded-sm p-3 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between">
                     <div>
                         <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold mb-2 flex items-center gap-1">
@@ -331,10 +329,15 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
                             <input type="number" value={simAmount} onChange={(e) => setSimAmount(Number(e.target.value))} className="w-full h-7 text-[10px] px-2 border border-slate-300 dark:border-slate-700 rounded-sm" placeholder={t.amountPlaceholder} />
                         </div>
                     </div>
-                    <div className="mt-2">
+                    <div className="mt-2 space-y-2">
                         <button onClick={triggerWebhook} className="w-full bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white px-3 py-1 rounded-sm text-[10px] h-7 whitespace-nowrap font-bold uppercase transition-colors">
                             {t.triggerWebhook}
                         </button>
+                        {activeTx?.status === TransactionStatus.AWAITING_APPROVAL && (
+                            <button onClick={approveTransaction} className="w-full bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded-sm text-[10px] h-7 whitespace-nowrap font-bold uppercase transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-blue-900/20 animate-pulse">
+                                <ShieldCheck size={12} /> {t.approveBtn}
+                            </button>
+                        )}
                         {simError && <p className="text-[9px] text-red-600 dark:text-red-400 mt-1 font-medium">{simError}</p>}
                     </div>
                 </div>

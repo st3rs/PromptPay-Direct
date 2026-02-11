@@ -68,6 +68,7 @@ export const TRANSLATIONS = {
     initiating: "Executing blockchain transfer...",
     alert: "Compliance Notice",
     contactSupport: "Funds held pending review. Reference ID required.",
+    pendingApproval: "Awaiting Multi-Sig Approval",
     
     // Admin Dashboard
     adminConsole: "Administrator Terminal",
@@ -85,6 +86,7 @@ export const TRANSLATIONS = {
     colStatus: "Status",
     colTime: "Timestamp (UTC)",
     noRecords: "No records found.",
+    approveBtn: "Approve Transfer",
     
     // Payment Link
     paymentLink: "Quick Pay Link",
@@ -158,6 +160,7 @@ export const TRANSLATIONS = {
     initiating: "กำลังดำเนินการ...",
     alert: "แจ้งเตือนความปลอดภัย",
     contactSupport: "ยอดเงินถูกระงับ โปรดติดต่อฝ่ายสนับสนุน",
+    pendingApproval: "รอการอนุมัติ Multi-Sig",
     
     // Admin Dashboard
     adminConsole: "คอนโซลผู้ดูแลระบบ",
@@ -175,6 +178,7 @@ export const TRANSLATIONS = {
     colStatus: "สถานะ",
     colTime: "เวลา UTC",
     noRecords: "ไม่พบข้อมูล",
+    approveBtn: "อนุมัติรายการ",
 
     // Payment Link
     paymentLink: "ลิงก์ชำระเงินด่วน",

@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { Transaction, TransactionStatus, Language } from '../types';
-import { Check, Loader2, Wallet, ArrowLeftRight, Server, AlertTriangle, FileText, Clock, ChevronDown, ChevronUp, XCircle, LifeBuoy } from 'lucide-react';
+import { Check, Loader2, Wallet, ArrowLeftRight, Server, AlertTriangle, FileText, Clock, ChevronDown, ChevronUp, XCircle, LifeBuoy, ShieldAlert } from 'lucide-react';
 import { THEME, TRANSLATIONS } from '../constants';
 
 interface Props {
@@ -24,6 +25,7 @@ export const TransactionPulse: React.FC<Props> = ({ transaction, lang }) => {
     switch (status) {
       case TransactionStatus.AWAITING_PAYMENT: return 0;
       case TransactionStatus.VERIFYING_BANK: return 1;
+      case TransactionStatus.AWAITING_APPROVAL: return 1; // Stuck on verification visually
       case TransactionStatus.DISBURSING: return 2;
       case TransactionStatus.COMPLETED: return 3;
       case TransactionStatus.FAILED: return 1; 
@@ -152,6 +154,25 @@ export const TransactionPulse: React.FC<Props> = ({ transaction, lang }) => {
             </div>
         )}
 
+        {/* Pending Approval Message Block */}
+        {transaction.status === TransactionStatus.AWAITING_APPROVAL && (
+            <div className="mb-8 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 shadow-sm overflow-hidden">
+                <div className="p-4 flex items-start gap-4">
+                    <div className="bg-amber-100 dark:bg-amber-800/30 p-2.5 rounded-full shrink-0 border border-amber-200 dark:border-amber-700/50">
+                        <ShieldAlert size={24} className="text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                       <h3 className="text-sm font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide mb-1">
+                           {t.pendingApproval}
+                       </h3>
+                       <p className="text-xs text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
+                           Large transaction detected. Our compliance team is performing a secondary review. No action is required from your side.
+                       </p>
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* Transaction Details - Statement Style */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-sm overflow-hidden mb-6">
             <div className="bg-slate-50 dark:bg-slate-900 px-4 py-2 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
@@ -191,7 +212,7 @@ export const TransactionPulse: React.FC<Props> = ({ transaction, lang }) => {
         </div>
 
         {/* Live Status Message (Only if active) */}
-        {transaction.status === TransactionStatus.VERIFYING_BANK && !isFailed && (
+        {(transaction.status === TransactionStatus.VERIFYING_BANK || transaction.status === TransactionStatus.AWAITING_APPROVAL) && !isFailed && (
             <div className="flex items-center gap-3 text-xs bg-blue-50 dark:bg-blue-900/10 p-3 rounded-sm border-l-2 border-blue-600 dark:border-blue-500">
                 <Loader2 size={14} className="animate-spin text-blue-700 dark:text-blue-400" />
                 <span className="text-blue-800 dark:text-blue-300 font-medium">{t.verifying}</span>

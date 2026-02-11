@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Transaction, TransactionStatus, UserKYC, Language, AppConfig } from './types';
 import { THEME, TRANSLATIONS, RATE_REFRESH_MS, RATE_FLUCTUATION_RANGE } from './constants';
@@ -21,34 +22,42 @@ function App() {
   // Configuration State
   const [config, setConfig] = useState<AppConfig>(ConfigService.get());
 
+  // Rate Engine States
+  const [isRateLoading, setIsRateLoading] = useState<boolean>(true);
+  const [isUpdating, setIsUpdating] = useState<boolean>(false);
+  const [displayRate, setDisplayRate] = useState<number>(config.baseRate * (1 + config.feePercent / 100));
+  const [rateTrend, setRateTrend] = useState<'up' | 'down' | 'stable'>('stable');
+  const prevRateRef = useRef(displayRate);
+
   // Swap State
   const [amountTHB, setAmountTHB] = useState<number>(ConfigService.get().defaultAmountTHB);
   const [memo, setMemo] = useState<string>(''); // Transaction Reference/Memo
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
 
-  // Rate state includes fluctuation
-  const [displayRate, setDisplayRate] = useState<number>(config.baseRate * (1 + config.feePercent / 100));
-  const [rateTrend, setRateTrend] = useState<'up' | 'down' | 'stable'>('stable');
-  const prevRateRef = useRef(displayRate);
-
   // KYC State
-  const [kycData, setKycData] = useState<UserKYC>({
+  const initialKyc = {
     fullName: 'John Doe',
     nationalId: '1100012345678',
     walletAddress: 'T9yD14Nj9j7xAB4dbGeiX9h8unc5xh87f', // Sample TRC20
     isVerified: false
-  });
+  };
+  const [kycData, setKycData] = useState<UserKYC>({ ...initialKyc });
+  const kycRef = useRef<UserKYC>({ ...initialKyc });
 
   // Transaction State
   const [activeTx, setActiveTx] = useState<Transaction | null>(null);
 
-  // Initialize Theme
+  // Initialize Theme and Loading State
   useEffect(() => {
     if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       setTheme('dark');
     } else {
       setTheme('light');
     }
+
+    // Simulate initial market connection delay
+    const initialLoadTimer = setTimeout(() => setIsRateLoading(false), 1200);
+    return () => clearTimeout(initialLoadTimer);
   }, []);
 
   // Update Theme in DOM
@@ -66,7 +75,6 @@ function App() {
   useEffect(() => {
     const unsubscribe = ConfigService.subscribe((newConfig) => {
       setConfig(newConfig);
-      // Immediately update display rate when config changes base/fee
       const newRate = newConfig.baseRate * (1 + newConfig.feePercent / 100);
       setDisplayRate(Number(newRate.toFixed(2)));
     });
@@ -83,40 +91,42 @@ function App() {
     }
   }, [screen]);
 
-  // Simulate Rate Fluctuation with variable timing
+  // Simulate Rate Fluctuation with update signal
   useEffect(() => {
-    if (screen !== 'SWAP') return;
+    if (screen !== 'SWAP' || isRateLoading) return;
 
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const updateRate = () => {
-      setDisplayRate(prevRate => {
-        const targetRate = config.baseRate * (1 + config.feePercent / 100);
-        // Slightly larger noise factor for more apparent movement
-        const noise = (Math.random() - 0.5) * (RATE_FLUCTUATION_RANGE * 1.2);
-        // Stronger drift to pull back to target if it wanders too far
-        const drift = (targetRate - prevRate) * 0.15; 
-        
-        let nextRate = prevRate + noise + drift;
-        const max = targetRate + RATE_FLUCTUATION_RANGE;
-        const min = targetRate - RATE_FLUCTUATION_RANGE;
-        
-        if (nextRate > max) nextRate = max;
-        if (nextRate < min) nextRate = min;
+      // Signal fluctuation start
+      setIsUpdating(true);
+      
+      // Simulate network latency for rate update
+      setTimeout(() => {
+        setDisplayRate(prevRate => {
+          const targetRate = config.baseRate * (1 + config.feePercent / 100);
+          const noise = (Math.random() - 0.5) * (RATE_FLUCTUATION_RANGE * 1.2);
+          const drift = (targetRate - prevRate) * 0.15; 
+          
+          let nextRate = prevRate + noise + drift;
+          const max = targetRate + RATE_FLUCTUATION_RANGE;
+          const min = targetRate - RATE_FLUCTUATION_RANGE;
+          
+          if (nextRate > max) nextRate = max;
+          if (nextRate < min) nextRate = min;
 
-        return Number(nextRate.toFixed(2));
-      });
+          return Number(nextRate.toFixed(2));
+        });
+        setIsUpdating(false);
+      }, 400);
 
-      // Random delay between 1.5s and 4.5s to mimic realistic market ticks
       const nextDelay = Math.floor(Math.random() * 3000) + 1500;
       timeoutId = setTimeout(updateRate, nextDelay);
     };
 
-    // Initial trigger
     timeoutId = setTimeout(updateRate, RATE_REFRESH_MS);
-
     return () => clearTimeout(timeoutId);
-  }, [screen, config.baseRate, config.feePercent]);
+  }, [screen, config.baseRate, config.feePercent, isRateLoading]);
 
   // Track Rate Trend
   useEffect(() => {
@@ -131,7 +141,6 @@ function App() {
   }, [displayRate]);
 
   useEffect(() => {
-    // Check for deep link params on load
     const params = new URLSearchParams(window.location.search);
     const amt = params.get('amt');
     const ref = params.get('ref'); 
@@ -140,7 +149,6 @@ function App() {
       setAmountTHB(Number(amt));
       if (ref) setMemo(ref);
       setScreen('SWAP');
-      // Clean URL parameters visually but keep state
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -172,7 +180,7 @@ function App() {
         timestamp: Date.now(),
         qrPayload,
         logs: [],
-        memo: memo // Pass the memo field
+        memo: memo 
       };
   
       MockBackend.createTransaction(newTx);
@@ -195,12 +203,16 @@ function App() {
   const toggleLang = () => setLang(current => current === 'en' ? 'th' : 'en');
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
 
+  const getKycInputStyle = (key: keyof typeof initialKyc) => {
+    const isDirty = kycData[key] !== kycRef.current[key];
+    return `${THEME.input} ${isDirty ? 'border-l-2 border-l-blue-600 pl-4' : ''} transition-all duration-200`;
+  };
+
   return (
     <div className={`min-h-screen ${THEME.bg} text-slate-800 dark:text-slate-300 font-sans selection:bg-blue-100 dark:selection:bg-blue-900 flex flex-col transition-colors duration-300`}>
       
       {/* Formal Header with Top Bar */}
       <header className="sticky top-0 z-50 shadow-sm">
-        {/* Top Utility Bar */}
         <div className="bg-slate-900 dark:bg-slate-950 text-slate-300 text-[10px] py-1.5 px-6 hidden md:block border-b border-slate-800 dark:border-slate-900">
           <div className="max-w-6xl mx-auto flex justify-between items-center">
              <div className="flex gap-4 tracking-wide font-medium">
@@ -217,7 +229,6 @@ function App() {
           </div>
         </div>
 
-        {/* Main Nav Bar */}
         <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors duration-300">
           <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
             <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setScreen('SWAP')}>
@@ -231,11 +242,6 @@ function App() {
             </div>
             
             <div className="flex items-center gap-4">
-              <div className="hidden md:flex gap-1">
-                 <button className="px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-sm transition-colors uppercase tracking-wide">Help</button>
-                 <button className="px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-sm transition-colors uppercase tracking-wide">Rates</button>
-              </div>
-               <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
                <button 
                   onClick={toggleTheme}
                   className="text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-sm transition-colors"
@@ -256,7 +262,6 @@ function App() {
 
       <main className="flex-1 max-w-6xl mx-auto w-full p-6 md:py-12 space-y-10">
         
-        {/* Screen 1: Swap Interface (Bank Transfer Style) */}
         {screen === 'SWAP' && (
           <div className="max-w-2xl mx-auto">
              <div className="mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">
@@ -284,7 +289,7 @@ function App() {
                      {/* FROM Section */}
                      <div className="space-y-3">
                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{t.youPay}</label>
-                        <div className="border border-slate-300 dark:border-slate-700 rounded-sm p-3 hover:border-blue-600 transition-colors bg-white dark:bg-slate-900">
+                        <div className={`border rounded-sm p-3 hover:border-blue-600 transition-colors bg-white dark:bg-slate-900 ${amountTHB !== config.defaultAmountTHB ? 'border-blue-400 shadow-inner' : 'border-slate-300 dark:border-slate-700'}`}>
                              <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center gap-2">
                                    <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-serif font-bold text-slate-600 dark:text-slate-300 text-xs border border-slate-200 dark:border-slate-700">฿</div>
@@ -305,7 +310,6 @@ function App() {
                         </p>
                      </div>
 
-                     {/* Divider Arrow */}
                      <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-6 w-8 h-8 bg-slate-50 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-600 items-center justify-center text-slate-400 dark:text-slate-500 z-10 shadow-sm">
                         <ArrowRight size={14} />
                      </div>
@@ -321,12 +325,16 @@ function App() {
                                 </div>
                                 <span className="text-[10px] text-blue-800/60 dark:text-blue-300/60 font-mono">TRC-20</span>
                             </div>
-                             <input 
-                                type="text" 
-                                readOnly
-                                value={(amountTHB / displayRate).toFixed(2)}
-                                className="w-full text-2xl font-mono text-blue-800 dark:text-blue-300 outline-none bg-transparent font-bold border-b border-blue-100 dark:border-blue-800 pb-1 cursor-not-allowed"
-                            />
+                             {isRateLoading ? (
+                               <div className="w-full h-8 bg-blue-100/50 dark:bg-blue-800/20 animate-pulse rounded-sm mt-1"></div>
+                             ) : (
+                               <input 
+                                  type="text" 
+                                  readOnly
+                                  value={(amountTHB / displayRate).toFixed(2)}
+                                  className="w-full text-2xl font-mono text-blue-800 dark:text-blue-300 outline-none bg-transparent font-bold border-b border-blue-100 dark:border-blue-800 pb-1 cursor-not-allowed"
+                              />
+                             )}
                         </div>
                         <p className="text-[10px] text-slate-500 dark:text-slate-500 flex items-center gap-1.5 pl-1">
                            <Wallet size={12} className="text-blue-600 dark:text-blue-500" /> Direct to Cold/Hot Wallet
@@ -334,7 +342,6 @@ function App() {
                      </div>
                  </div>
 
-                 {/* Memo Display if Present */}
                  {memo && (
                     <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/50 rounded-sm p-3 flex gap-2 items-start">
                         <StickyNote size={14} className="text-amber-600 dark:text-amber-500 mt-0.5" />
@@ -345,21 +352,31 @@ function App() {
                     </div>
                  )}
 
-                 {/* Rate Summary Table */}
+                 {/* Rate Summary Table with Skeleton States */}
                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-sm">
                     <table className="w-full text-xs">
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                             <tr>
                                 <td className="p-3 text-slate-500 dark:text-slate-400 font-medium">{t.rate}</td>
                                 <td className="p-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
-                                   <div className="flex items-center justify-end gap-2">
-                                     {rateTrend !== 'stable' && (
-                                       <span className={`${rateTrend === 'up' ? 'text-emerald-500' : 'text-red-500'}`}>
-                                          {rateTrend === 'up' ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                                       </span>
-                                     )}
-                                     <span>1 USDT = {displayRate.toFixed(2)} THB</span>
-                                   </div>
+                                   {isRateLoading ? (
+                                     <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 animate-pulse rounded ml-auto"></div>
+                                   ) : (
+                                     <div className={`flex items-center justify-end gap-2 transition-opacity duration-300 ${isUpdating ? 'opacity-50' : 'opacity-100'}`}>
+                                       {isUpdating ? (
+                                         <span className="text-[9px] text-slate-400 dark:text-slate-500 italic font-normal">Refreshing...</span>
+                                       ) : (
+                                         <>
+                                           {rateTrend !== 'stable' && (
+                                             <span className={`${rateTrend === 'up' ? 'text-emerald-500' : 'text-red-500'}`}>
+                                                {rateTrend === 'up' ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                                             </span>
+                                           )}
+                                         </>
+                                       )}
+                                       <span>1 USDT = {displayRate.toFixed(2)} THB</span>
+                                     </div>
+                                   )}
                                 </td>
                             </tr>
                             <tr>
@@ -368,7 +385,13 @@ function App() {
                             </tr>
                             <tr className="bg-slate-100 dark:bg-slate-800">
                                 <td className="p-3 text-slate-800 dark:text-slate-200 font-bold uppercase">{t.exactAmount}</td>
-                                <td className="p-3 text-right font-mono font-bold text-lg text-blue-800 dark:text-blue-400">฿ {amountTHB.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                                <td className="p-3 text-right font-mono font-bold text-lg text-blue-800 dark:text-blue-400">
+                                  {isRateLoading ? (
+                                    <div className="h-6 w-24 bg-blue-200 dark:bg-blue-800/40 animate-pulse rounded ml-auto"></div>
+                                  ) : (
+                                    <span className={isUpdating ? 'opacity-70' : ''}>฿ {amountTHB.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                                  )}
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -376,25 +399,16 @@ function App() {
 
                  <button 
                    onClick={handleSwapInit}
-                   className={`w-full ${THEME.buttonPrimary} flex justify-center items-center gap-2`}
+                   disabled={isRateLoading}
+                   className={`w-full ${THEME.buttonPrimary} flex justify-center items-center gap-2 ${isRateLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                  >
-                   {t.proceed} <ChevronRight size={14} />
+                   {isRateLoading ? 'Connecting to Market...' : <>{t.proceed} <ChevronRight size={14} /></>}
                  </button>
                </div>
-            </div>
-            
-            <div className="flex justify-center gap-8 mt-6">
-                <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500 grayscale opacity-70">
-                    <Building2 size={14} /> <span className="text-[10px] font-bold uppercase tracking-wider">Regulated Entity</span>
-                </div>
-                 <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500 grayscale opacity-70">
-                    <Lock size={14} /> <span className="text-[10px] font-bold uppercase tracking-wider">TLS 1.3 Encryption</span>
-                </div>
             </div>
           </div>
         )}
 
-        {/* Screen 2: KYC & Details */}
         {screen === 'KYC' && (
            <div className="max-w-2xl mx-auto">
              <div className="mb-6 border-b border-slate-200 dark:border-slate-800 pb-4 flex justify-between items-end">
@@ -433,7 +447,7 @@ function App() {
                               type="text" 
                               value={kycData.fullName}
                               onChange={(e) => setKycData({...kycData, fullName: e.target.value})}
-                              className={THEME.input}
+                              className={getKycInputStyle('fullName')}
                               placeholder="e.g. SOMCHAI JAIDEE"
                             />
                           </div>
@@ -443,7 +457,7 @@ function App() {
                               type="text" 
                               value={kycData.nationalId}
                               onChange={(e) => setKycData({...kycData, nationalId: e.target.value})}
-                              className={THEME.input}
+                              className={getKycInputStyle('nationalId')}
                               placeholder="13-digit ID Number"
                             />
                           </div>
@@ -455,7 +469,7 @@ function App() {
                               type="text" 
                               value={kycData.walletAddress}
                               onChange={(e) => setKycData({...kycData, walletAddress: e.target.value})}
-                              className={`${THEME.input} font-mono text-xs pl-9`}
+                              className={`${getKycInputStyle('walletAddress')} font-mono text-xs pl-9`}
                             />
                             <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={14} />
                         </div>
@@ -476,7 +490,6 @@ function App() {
            </div>
         )}
 
-        {/* Screen 3: Pulse & QR */}
         {screen === 'PULSE' && activeTx && (
           <div className="space-y-8 animate-fade-in">
              <TransactionPulse transaction={activeTx} lang={lang} />
@@ -516,16 +529,13 @@ function App() {
           </div>
         )}
 
-        {/* Confirmation Modal Overlay */}
         {isConfirmModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-             {/* Backdrop */}
              <div 
                 className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
                 onClick={() => setIsConfirmModalOpen(false)}
              ></div>
              
-             {/* Modal Card */}
              <div className="relative bg-white dark:bg-slate-900 w-full max-w-md rounded border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">

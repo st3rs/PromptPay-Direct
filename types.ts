@@ -4,6 +4,7 @@ export enum TransactionStatus {
   KYC_PENDING = 'KYC_PENDING',
   AWAITING_PAYMENT = 'AWAITING_PAYMENT',
   VERIFYING_BANK = 'VERIFYING_BANK', // Logic Guard
+  AWAITING_APPROVAL = 'AWAITING_APPROVAL', // Multi-sig/Manual Guard
   DISBURSING = 'DISBURSING', // Crypto Transfer
   COMPLETED = 'COMPLETED',
   FAILED = 'FAILED'
