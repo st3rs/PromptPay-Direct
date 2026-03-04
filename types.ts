@@ -36,7 +36,7 @@ export interface Transaction {
 export interface LogEntry {
   timestamp: string;
   level: 'INFO' | 'WARN' | 'CRITICAL';
-  module: 'WEBHOOK' | 'KYC' | 'LEDGER' | 'DISBURSER';
+  module: 'WEBHOOK' | 'KYC' | 'LEDGER' | 'DISBURSER' | 'BITKUB' | 'WALLET' | 'AUTO-BUY';
   message: string;
   hash: string; // Simulated hash of the log for integrity
 }
