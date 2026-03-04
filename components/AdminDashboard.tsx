@@ -3,8 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { Transaction, LogEntry, TransactionStatus, Language, AppConfig } from '../types';
 import { MockBackend } from '../services/mockBackend';
 import { ConfigService } from '../services/configService';
+import { WalletService, WalletState } from '../services/walletService';
+import { getAutoBuyStatus } from '../services/autoBuyService';
+import { BitkubApi } from '../services/bitkubApi';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { RefreshCw, Terminal, History, Settings, Save, Server, Wallet, Link as LinkIcon, ExternalLink, Check, Activity, DollarSign, Percent, Smartphone, Calculator, RotateCcw, Banknote, ShieldCheck } from 'lucide-react';
+import { RefreshCw, Terminal, History, Settings, Save, Server, Wallet, Link as LinkIcon, ExternalLink, Check, Activity, DollarSign, Percent, Smartphone, Calculator, RotateCcw, Banknote, ShieldCheck, Zap, TrendingUp, ArrowDownCircle } from 'lucide-react';
 import { THEME, TRANSLATIONS } from '../constants';
 
 const data = [
@@ -44,6 +47,11 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
   const [editConfig, setEditConfig] = useState<AppConfig>(ConfigService.get());
   const [isConfigChanged, setIsConfigChanged] = useState(false);
 
+  // Wallet & Bitkub state
+  const [walletState, setWalletState] = useState<WalletState>(WalletService.getState());
+  const [autoBuyMode, setAutoBuyMode] = useState<'LIVE' | 'SIMULATION'>(getAutoBuyStatus().mode);
+  const [liveRate, setLiveRate] = useState<number | null>(null);
+
   useEffect(() => {
     // Sync with backend simulation
     const interval = setInterval(() => {
@@ -69,9 +77,26 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
         }
     });
 
+    const unsubscribeWallet = WalletService.subscribe((ws) => {
+        setWalletState(ws);
+    });
+
+    // Poll Bitkub live rate every 10s (public endpoint, no auth needed)
+    const rateInterval = setInterval(() => {
+      BitkubApi.fetchUsdtRate()
+        .then(rate => setLiveRate(rate))
+        .catch(() => {}); // Silently fail — rate display is optional
+      setAutoBuyMode(getAutoBuyStatus().mode);
+    }, 10000);
+
+    // Initial fetch
+    BitkubApi.fetchUsdtRate().then(rate => setLiveRate(rate)).catch(() => {});
+
     return () => {
         clearInterval(interval);
+        clearInterval(rateInterval);
         unsubscribeConfig();
+        unsubscribeWallet();
     };
   }, [simName, simAmount, isConfigChanged]);
 
@@ -167,7 +192,7 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
         <div className="lg:col-span-2 space-y-4">
             
             {/* Metric Cards - Dense */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-3 rounded-sm shadow-sm">
                     <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">{t.thbReserves}</p>
                     <p className="text-sm font-mono text-slate-800 dark:text-slate-200 font-bold mt-1">฿{reserves.thbReserves.toLocaleString()}</p>
@@ -178,16 +203,47 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
                         {reserves.usdtReserves.toLocaleString()} <span className="text-[9px] text-slate-400 font-normal">USDT</span>
                     </p>
                 </div>
-                 <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-3 rounded-sm shadow-sm flex flex-col justify-center">
-                    <div className="flex items-center justify-between">
-                         <span className="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">{t.autoHedge}</span>
-                         <div className={`w-1.5 h-1.5 rounded-full ${reserves.autoHedge ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
+
+                {/* In-App Wallet Balance */}
+                <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-900/20 dark:to-slate-900 border border-emerald-300 dark:border-emerald-800 p-3 rounded-sm shadow-sm">
+                    <p className="text-[9px] text-emerald-700 dark:text-emerald-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                        <Wallet size={9} /> App Wallet
+                    </p>
+                    <p className="text-sm font-mono text-emerald-800 dark:text-emerald-300 font-bold mt-1">
+                        {walletState.usdtBalance.toFixed(4)} <span className="text-[9px] text-emerald-600 dark:text-emerald-500 font-normal">USDT</span>
+                    </p>
+                    <p className="text-[8px] text-emerald-600 dark:text-emerald-500 mt-0.5 font-mono">
+                        ฿{walletState.thbTotalSpent.toLocaleString()} spent
+                    </p>
+                </div>
+
+                {/* Bitkub Status + Auto-Hedge */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-3 rounded-sm shadow-sm flex flex-col justify-between">
+                    <div>
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider flex items-center gap-1">
+                                <Zap size={9} /> Bitkub
+                            </span>
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm font-bold border uppercase ${
+                                autoBuyMode === 'LIVE'
+                                ? 'text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20'
+                                : 'text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20'
+                            }`}>
+                                {autoBuyMode}
+                            </span>
+                        </div>
+                        {liveRate && (
+                            <p className="text-[10px] font-mono text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                <TrendingUp size={9} className="text-blue-500" />
+                                {liveRate.toFixed(2)} <span className="text-[8px] text-slate-400">THB/USDT</span>
+                            </p>
+                        )}
                     </div>
-                    <button 
-                        onClick={toggleHedge} 
-                        className="mt-2 text-[9px] bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 py-0.5 px-2 rounded-sm border border-slate-200 dark:border-slate-700 w-full transition-colors font-medium uppercase"
+                    <button
+                        onClick={toggleHedge}
+                        className="mt-1.5 text-[9px] bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 py-0.5 px-2 rounded-sm border border-slate-200 dark:border-slate-700 w-full transition-colors font-medium uppercase"
                     >
-                        {reserves.autoHedge ? 'Disable' : 'Enable'}
+                        Auto-Buy {reserves.autoHedge ? 'ON' : 'OFF'}
                     </button>
                 </div>
             </div>
@@ -416,6 +472,68 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
             </div>
         </div>
       </div>
+
+      {/* Wallet History */}
+      {walletState.entries.length > 0 && (
+        <div className="border-t border-emerald-300 dark:border-emerald-800 mt-4 pt-0">
+          <div className="p-2 bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
+              <h4 className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-2 uppercase">
+                 <ArrowDownCircle size={10} /> Wallet — Auto-Buy History
+              </h4>
+              <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400">
+                  {walletState.entries.length} entries | {walletState.usdtBalance.toFixed(4)} USDT total
+              </span>
+          </div>
+          <div className="overflow-x-auto bg-white dark:bg-slate-950">
+              <table className="w-full text-xs text-left">
+                 <thead className="text-[9px] text-slate-500 dark:text-slate-400 uppercase bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                       <th className="px-4 py-2 font-bold">Wallet ID</th>
+                       <th className="px-4 py-2 font-bold">TX Ref</th>
+                       <th className="px-4 py-2 font-bold">THB Spent</th>
+                       <th className="px-4 py-2 font-bold">USDT Received</th>
+                       <th className="px-4 py-2 font-bold">Rate</th>
+                       <th className="px-4 py-2 font-bold">Fee</th>
+                       <th className="px-4 py-2 font-bold">Bitkub Order</th>
+                       <th className="px-4 py-2 font-bold">Status</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[10px]">
+                    {walletState.entries.map(entry => (
+                      <tr key={entry.id} className="hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
+                         <td className="px-4 py-2 font-mono text-slate-600 dark:text-slate-300">{entry.id}</td>
+                         <td className="px-4 py-2 font-mono text-slate-500 dark:text-slate-400">{entry.txReferenceId}</td>
+                         <td className="px-4 py-2 font-mono text-slate-700 dark:text-slate-300 font-bold">฿{entry.thbSpent.toLocaleString()}</td>
+                         <td className="px-4 py-2 font-mono text-emerald-700 dark:text-emerald-400 font-bold">
+                             {entry.amount.toFixed(4)} <span className="text-[9px] text-slate-400 font-normal">USDT</span>
+                         </td>
+                         <td className="px-4 py-2 font-mono text-slate-600 dark:text-slate-400">{entry.rate.toFixed(2)}</td>
+                         <td className="px-4 py-2 font-mono text-slate-500 dark:text-slate-500">฿{entry.fee.toFixed(2)}</td>
+                         <td className="px-4 py-2 font-mono text-[9px] text-slate-500 dark:text-slate-500">
+                             {entry.bitkubOrderId ? (
+                                 <span className={entry.bitkubOrderId.startsWith('SIM') ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}>
+                                     {entry.bitkubOrderId}
+                                 </span>
+                             ) : '—'}
+                         </td>
+                         <td className="px-4 py-2">
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm font-bold border uppercase ${
+                                entry.status === 'COMPLETED'
+                                ? 'text-emerald-800 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20'
+                                : entry.status === 'PENDING'
+                                ? 'text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20'
+                                : 'text-red-800 dark:text-red-400 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20'
+                            }`}>
+                               {entry.status}
+                            </span>
+                         </td>
+                      </tr>
+                    ))}
+                 </tbody>
+              </table>
+          </div>
+        </div>
+      )}
 
       {/* History Table */}
       <div className="border-t border-slate-300 dark:border-slate-800 mt-4 pt-0">

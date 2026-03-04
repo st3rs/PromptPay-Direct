@@ -2,6 +2,8 @@
 import { Transaction, TransactionStatus, LogEntry, OrderBook } from '../types';
 import { generateHash } from '../utils/security';
 import { PROMPTPAY_ID, MAX_AUTO_APPROVE_USD } from '../constants';
+import { executeAutoBuy, getAutoBuyStatus } from './autoBuyService';
+import { WalletService } from './walletService';
 
 // Simulated Server State
 let currentTransaction: Transaction | null = null;
@@ -113,27 +115,50 @@ export const MockBackend = {
   },
 
   executeFinalSettlement: () => {
-    setTimeout(() => {
-      if (!currentTransaction || currentTransaction.status !== TransactionStatus.DISBURSING) return;
-      
-      // Simulate Blockchain
-      addLog('DISBURSER', `Broadcasting TRC20 transfer of ₮${currentTransaction.amountUSDT} to ${currentTransaction.user.walletAddress}`);
-      
-      // Update Reserves
-      orderBook.thbReserves += currentTransaction.amountTHB;
-      orderBook.usdtReserves -= currentTransaction.amountUSDT;
-      
-      // Auto Hedge Logic
-      if (orderBook.autoHedge) {
-        addLog('LEDGER', `Auto-Hedge: Placed Buy Order for ₮${currentTransaction.amountUSDT} on Binance.`);
-      } else {
-        addLog('LEDGER', `Auto-Hedge Skipped (Manual Mode). Reserves may unbalance.`);
-      }
+    if (!currentTransaction || currentTransaction.status !== TransactionStatus.DISBURSING) return;
 
-      currentTransaction.status = TransactionStatus.COMPLETED;
-      addLog('LEDGER', `Transaction Finalized. Reconciliation ID: ${currentTransaction.referenceId}`);
+    const tx = currentTransaction;
+    const status = getAutoBuyStatus();
+
+    addLog('DISBURSER', `Settlement mode: ${status.mode} | Auto-Buy via Bitkub`);
+    addLog('DISBURSER', `Executing auto-buy: ฿${tx.amountTHB} → USDT on Bitkub...`);
+    notify();
+
+    // Bridge addLog into the AutoBuyService log callback
+    const logBridge = (module: string, message: string, level: 'INFO' | 'WARN' | 'CRITICAL') => {
+      // Map auto-buy modules to our log modules
+      const mapped = module === 'WALLET' ? 'LEDGER' : module === 'BITKUB' ? 'LEDGER' : 'DISBURSER';
+      addLog(mapped as LogEntry['module'], `[${module}] ${message}`, level);
       notify();
-    }, 3000);
+    };
+
+    executeAutoBuy(tx.amountTHB, tx.referenceId, logBridge)
+      .then((result) => {
+        if (!currentTransaction || currentTransaction.referenceId !== tx.referenceId) return;
+
+        if (result.success) {
+          // Update reserves
+          orderBook.thbReserves += tx.amountTHB;
+          orderBook.usdtReserves = WalletService.getState().usdtBalance;
+
+          addLog('LEDGER', `Auto-Buy Complete: ${result.usdtReceived} USDT @ ${result.effectiveRate.toFixed(2)} THB/USDT${result.isSimulated ? ' [SIMULATED]' : ''}`);
+          addLog('LEDGER', `Bitkub Order: ${result.bitkubOrderId} | Fee: ฿${result.fee.toFixed(2)}`);
+          addLog('LEDGER', `USDT credited to in-app wallet. Balance: ${WalletService.getState().usdtBalance.toFixed(4)} USDT`);
+
+          currentTransaction.status = TransactionStatus.COMPLETED;
+          addLog('LEDGER', `Transaction Finalized. Reconciliation ID: ${tx.referenceId}`);
+        } else {
+          addLog('DISBURSER', `Auto-buy failed: ${result.error}`, 'CRITICAL');
+          currentTransaction.status = TransactionStatus.FAILED;
+        }
+        notify();
+      })
+      .catch((err) => {
+        if (!currentTransaction) return;
+        addLog('DISBURSER', `Settlement error: ${err.message}`, 'CRITICAL');
+        currentTransaction.status = TransactionStatus.FAILED;
+        notify();
+      });
   },
 
   toggleAutoHedge: () => {
