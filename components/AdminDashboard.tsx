@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Transaction, LogEntry, TransactionStatus, Language, AppConfig } from '../types';
 import { MockBackend } from '../services/mockBackend';
 import { ConfigService } from '../services/configService';
+import { FirebaseService } from '../services/firebase';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { RefreshCw, Terminal, History, Settings, Save, Server, Wallet, Link as LinkIcon, ExternalLink, Check, Activity, DollarSign, Percent, Smartphone, Calculator, RotateCcw, Banknote, ShieldCheck } from 'lucide-react';
 import { THEME, TRANSLATIONS } from '../constants';
@@ -46,8 +47,15 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
 
   useEffect(() => {
     // Sync with backend simulation
-    const interval = setInterval(() => {
-      setLogs([...MockBackend.getLogs()]);
+    const interval = setInterval(async () => {
+      // If Firebase is configured, fetch SEC logs from Firestore. Otherwise, use local mock logs.
+      if (import.meta.env.VITE_FIREBASE_PROJECT_ID) {
+        const secLogs = await FirebaseService.getRecentLogs(50);
+        setLogs(secLogs.length > 0 ? secLogs : MockBackend.getLogs());
+      } else {
+        setLogs([...MockBackend.getLogs()]);
+      }
+      
       setReserves({...MockBackend.getOrderBook()});
       setActiveTx(MockBackend.getCurrentTransaction());
       setHistory([...MockBackend.getTransactionHistory()]);
@@ -141,11 +149,12 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
 
   const getInputStyle = (key: keyof AppConfig) => {
       const isModified = editConfig[key] !== config[key];
+      const isDisabled = key === 'baseRate' && editConfig.useLiveRate;
       return `w-full h-7 text-[10px] px-2 border transition-all duration-200 ${
           isModified 
           ? 'border-amber-400 dark:border-amber-600 border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-100 pl-3' 
           : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100'
-      } rounded-sm focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 outline-none`;
+      } rounded-sm focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 outline-none ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`;
   };
 
   const projectedRate = editConfig.baseRate * (1 + editConfig.feePercent / 100);
@@ -218,8 +227,14 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
                      <div className="p-3 space-y-3">
                          <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-[9px] text-slate-500 dark:text-slate-400 uppercase block mb-1 font-bold flex items-center gap-1">
-                                    <DollarSign size={8} /> {t.lblBaseRate}
+                                <label className="text-[9px] text-slate-500 dark:text-slate-400 uppercase block mb-1 font-bold flex items-center justify-between">
+                                    <span className="flex items-center gap-1"><DollarSign size={8} /> {t.lblBaseRate}</span>
+                                    <button 
+                                        onClick={() => handleConfigChange('useLiveRate', !editConfig.useLiveRate)}
+                                        className={`text-[8px] px-1.5 py-0.5 rounded-sm border transition-colors ${editConfig.useLiveRate ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800' : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'}`}
+                                    >
+                                        {editConfig.useLiveRate ? 'LIVE: BITKUB' : 'MANUAL'}
+                                    </button>
                                 </label>
                                 <input 
                                     type="number" 
@@ -227,6 +242,7 @@ export const AdminDashboard: React.FC<Props> = ({ lang, theme, onSimulateDeepLin
                                     value={editConfig.baseRate} 
                                     onChange={(e) => handleConfigChange('baseRate', parseFloat(e.target.value))} 
                                     className={getInputStyle('baseRate')}
+                                    disabled={editConfig.useLiveRate}
                                 />
                             </div>
                             <div>

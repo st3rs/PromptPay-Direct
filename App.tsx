@@ -6,6 +6,7 @@ import { generatePromptPayPayload } from './utils/promptpay';
 import { generateReferenceId, maskPII } from './utils/security';
 import { MockBackend } from './services/mockBackend';
 import { ConfigService } from './services/configService';
+import { FixedFloatService, FFCurrency } from './services/fixedFloatService';
 import { TransactionPulse } from './components/TransactionPulse';
 import { AdminDashboard } from './components/AdminDashboard';
 import QRCode from 'react-qr-code';
@@ -33,6 +34,12 @@ function App() {
   const [amountTHB, setAmountTHB] = useState<number>(ConfigService.get().defaultAmountTHB);
   const [memo, setMemo] = useState<string>(''); // Transaction Reference/Memo
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+
+  // FixedFloat State
+  const [ffCurrencies, setFfCurrencies] = useState<FFCurrency[]>([]);
+  const [targetCcy, setTargetCcy] = useState<string>('USDTTRC');
+  const [ffRate, setFfRate] = useState<number | null>(null);
+  const [isFfLoading, setIsFfLoading] = useState<boolean>(false);
 
   // KYC State
   const initialKyc = {
@@ -91,42 +98,81 @@ function App() {
     }
   }, [screen]);
 
-  // Simulate Rate Fluctuation with update signal
+  // Fetch real rate from Bitkub
   useEffect(() => {
     if (screen !== 'SWAP' || isRateLoading) return;
 
     let timeoutId: ReturnType<typeof setTimeout>;
 
-    const updateRate = () => {
-      // Signal fluctuation start
+    const fetchBitkubRate = async () => {
+      if (!ConfigService.get().useLiveRate) {
+        // If not using live rate, just schedule the next check and return
+        timeoutId = setTimeout(fetchBitkubRate, RATE_REFRESH_MS);
+        return;
+      }
+
       setIsUpdating(true);
-      
-      // Simulate network latency for rate update
-      setTimeout(() => {
-        setDisplayRate(prevRate => {
-          const targetRate = config.baseRate * (1 + config.feePercent / 100);
-          const noise = (Math.random() - 0.5) * (RATE_FLUCTUATION_RANGE * 1.2);
-          const drift = (targetRate - prevRate) * 0.15; 
-          
-          let nextRate = prevRate + noise + drift;
-          const max = targetRate + RATE_FLUCTUATION_RANGE;
-          const min = targetRate - RATE_FLUCTUATION_RANGE;
-          
-          if (nextRate > max) nextRate = max;
-          if (nextRate < min) nextRate = min;
-
-          return Number(nextRate.toFixed(2));
-        });
+      try {
+        const response = await fetch('https://api.bitkub.com/api/market/ticker?sym=THB_USDT');
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.THB_USDT && data.THB_USDT.last) {
+            const bitkubRate = data.THB_USDT.last;
+            
+            // Update the base rate in config if it changed. 
+            // The subscription will handle updating displayRate.
+            if (ConfigService.get().baseRate !== bitkubRate) {
+              ConfigService.update({ baseRate: bitkubRate });
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch Bitkub rate:", error);
+      } finally {
         setIsUpdating(false);
-      }, 400);
+      }
 
-      const nextDelay = Math.floor(Math.random() * 3000) + 1500;
-      timeoutId = setTimeout(updateRate, nextDelay);
+      timeoutId = setTimeout(fetchBitkubRate, RATE_REFRESH_MS);
     };
 
-    timeoutId = setTimeout(updateRate, RATE_REFRESH_MS);
+    fetchBitkubRate();
+
     return () => clearTimeout(timeoutId);
-  }, [screen, config.baseRate, config.feePercent, isRateLoading]);
+  }, [screen, isRateLoading]);
+
+  // Fetch FixedFloat Currencies
+  useEffect(() => {
+    FixedFloatService.getCurrencies().then(ccies => {
+      if (ccies.length > 0) {
+        setFfCurrencies(ccies);
+      }
+    });
+  }, []);
+
+  // Fetch FixedFloat Price when amount or target changes
+  useEffect(() => {
+    if (targetCcy === 'USDTTRC') {
+      setFfRate(null);
+      return;
+    }
+
+    const amountUSDT = amountTHB / displayRate;
+    if (amountUSDT <= 0) return;
+
+    const fetchFFPrice = async () => {
+      setIsFfLoading(true);
+      const res = await FixedFloatService.getPrice('USDTTRC', targetCcy, amountUSDT, 'from', 'float');
+      if (res && res.data && res.data.to) {
+        setFfRate(res.data.to.amount / amountUSDT); // rate from USDT to target
+      } else {
+        setFfRate(null);
+      }
+      setIsFfLoading(false);
+    };
+
+    const debounce = setTimeout(fetchFFPrice, 500);
+    return () => clearTimeout(debounce);
+  }, [amountTHB, displayRate, targetCcy]);
 
   // Track Rate Trend
   useEffect(() => {
@@ -166,6 +212,7 @@ function App() {
   const handleKYCSubmit = () => {
     try {
       const amountUSDT = amountTHB / displayRate;
+      const targetAmount = targetCcy === 'USDTTRC' ? amountUSDT : (amountUSDT * (ffRate || 0));
       const refId = generateReferenceId();
       const qrPayload = generatePromptPayPayload(config.promptPayId, amountTHB);
   
@@ -175,6 +222,8 @@ function App() {
         user: { ...kycData, isVerified: true },
         amountTHB,
         amountUSDT: parseFloat(amountUSDT.toFixed(2)),
+        targetCcy,
+        targetAmount: parseFloat(targetAmount.toFixed(6)),
         rate: displayRate,
         status: TransactionStatus.AWAITING_PAYMENT,
         timestamp: Date.now(),
@@ -320,20 +369,39 @@ function App() {
                         <div className="border border-blue-200 dark:border-blue-800 rounded-sm p-3 bg-blue-50/30 dark:bg-blue-900/10">
                              <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center gap-2">
-                                   <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center text-[10px] text-white font-bold border border-green-700">T</div>
-                                   <span className="text-sm font-bold text-blue-900 dark:text-blue-300">USDT</span>
+                                   {targetCcy === 'USDTTRC' ? (
+                                     <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center text-[10px] text-white font-bold border border-green-700">T</div>
+                                   ) : (
+                                     <img src={ffCurrencies.find(c => c.code === targetCcy)?.logo} alt={targetCcy} className="w-6 h-6 rounded-full" referrerPolicy="no-referrer" />
+                                   )}
+                                   {ffCurrencies.length > 0 ? (
+                                     <select 
+                                       value={targetCcy}
+                                       onChange={(e) => setTargetCcy(e.target.value)}
+                                       className="text-sm font-bold text-blue-900 dark:text-blue-300 bg-transparent outline-none cursor-pointer"
+                                     >
+                                       <option value="USDTTRC" className="text-slate-900">USDT (TRC-20)</option>
+                                       {ffCurrencies.filter(c => c.recv && c.code !== 'USDTTRC').map(c => (
+                                         <option key={c.code} value={c.code} className="text-slate-900">{c.coin} ({c.network})</option>
+                                       ))}
+                                     </select>
+                                   ) : (
+                                     <span className="text-sm font-bold text-blue-900 dark:text-blue-300">USDT</span>
+                                   )}
                                 </div>
-                                <span className="text-[10px] text-blue-800/60 dark:text-blue-300/60 font-mono">TRC-20</span>
+                                <span className="text-[10px] text-blue-800/60 dark:text-blue-300/60 font-mono">
+                                  {targetCcy === 'USDTTRC' ? 'TRC-20' : ffCurrencies.find(c => c.code === targetCcy)?.network}
+                                </span>
                             </div>
-                             {isRateLoading ? (
+                             {isRateLoading || isFfLoading ? (
                                <div className="w-full h-8 bg-blue-100/50 dark:bg-blue-800/20 animate-pulse rounded-sm mt-1"></div>
                              ) : (
                                <input 
                                   type="text" 
                                   readOnly
-                                  value={(amountTHB / displayRate).toFixed(2)}
+                                  value={targetCcy === 'USDTTRC' ? (amountTHB / displayRate).toFixed(2) : ((amountTHB / displayRate) * (ffRate || 0)).toFixed(6)}
                                   className="w-full text-2xl font-mono text-blue-800 dark:text-blue-300 outline-none bg-transparent font-bold border-b border-blue-100 dark:border-blue-800 pb-1 cursor-not-allowed"
-                              />
+                               />
                              )}
                         </div>
                         <p className="text-[10px] text-slate-500 dark:text-slate-500 flex items-center gap-1.5 pl-1">
@@ -363,7 +431,7 @@ function App() {
                                      <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 animate-pulse rounded ml-auto"></div>
                                    ) : (
                                      <div className={`flex items-center justify-end gap-2 transition-opacity duration-300 ${isUpdating ? 'opacity-50' : 'opacity-100'}`}>
-                                       {isUpdating ? (
+                                        {isUpdating ? (
                                          <span className="text-[9px] text-slate-400 dark:text-slate-500 italic font-normal">Refreshing...</span>
                                        ) : (
                                          <>
@@ -379,6 +447,14 @@ function App() {
                                    )}
                                 </td>
                             </tr>
+                            {targetCcy !== 'USDTTRC' && ffRate && (
+                              <tr>
+                                  <td className="p-3 text-slate-500 dark:text-slate-400 font-medium">Exchange Rate (Crypto)</td>
+                                  <td className="p-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
+                                    1 USDT ≈ {ffRate.toFixed(6)} {ffCurrencies.find(c => c.code === targetCcy)?.coin}
+                                  </td>
+                              </tr>
+                            )}
                             <tr>
                                 <td className="p-3 text-slate-500 dark:text-slate-400 font-medium">{t.fees}</td>
                                 <td className="p-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">{config.feePercent.toFixed(2)}%</td>
@@ -473,7 +549,9 @@ function App() {
                             />
                             <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={14} />
                         </div>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 font-medium">Network: Tron (TRC20)</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 font-medium">
+                          Network: {targetCcy === 'USDTTRC' ? 'Tron (TRC20)' : ffCurrencies.find(c => c.code === targetCcy)?.network}
+                        </p>
                       </div>
                     </div>
 
@@ -562,11 +640,20 @@ function App() {
                         </div>
                         <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
                             <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Receive Amount</span>
-                            <span className="text-sm font-mono font-bold text-blue-800 dark:text-blue-400">{(amountTHB / displayRate).toFixed(2)} USDT</span>
+                            <span className="text-sm font-mono font-bold text-blue-800 dark:text-blue-400">
+                              {targetCcy === 'USDTTRC' 
+                                ? `${(amountTHB / displayRate).toFixed(2)} USDT` 
+                                : `${((amountTHB / displayRate) * (ffRate || 0)).toFixed(6)} ${ffCurrencies.find(c => c.code === targetCcy)?.coin}`}
+                            </span>
                         </div>
                         <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
                             <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Exchange Rate</span>
-                            <span className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">1 USDT = {displayRate.toFixed(2)} THB</span>
+                            <div className="text-right">
+                              <div className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">1 USDT = {displayRate.toFixed(2)} THB</div>
+                              {targetCcy !== 'USDTTRC' && ffRate && (
+                                <div className="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300 mt-0.5">1 USDT ≈ {ffRate.toFixed(6)} {ffCurrencies.find(c => c.code === targetCcy)?.coin}</div>
+                              )}
+                            </div>
                         </div>
                         <div className="flex justify-between items-center">
                             <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Service Fee</span>

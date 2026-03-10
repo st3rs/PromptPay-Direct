@@ -8,7 +8,8 @@ const DEFAULT_CONFIG: AppConfig = {
   feePercent: SPREAD_PERCENT * 100, // Convert 0.008 to 0.8 for display/editing
   promptPayId: PROMPTPAY_ID,
   providerWallet: "TWd4...SimulatedProviderHotWallet",
-  defaultAmountTHB: 1000
+  defaultAmountTHB: 1000,
+  useLiveRate: true
 };
 
 // Helper to load from storage

@@ -2,6 +2,7 @@
 import { Transaction, TransactionStatus, LogEntry, OrderBook } from '../types';
 import { generateHash } from '../utils/security';
 import { PROMPTPAY_ID, MAX_AUTO_APPROVE_USD } from '../constants';
+import { FirebaseService } from './firebase';
 
 // Simulated Server State
 let currentTransaction: Transaction | null = null;
@@ -35,6 +36,9 @@ const addLog = (module: LogEntry['module'], message: string, level: LogEntry['le
   if (currentTransaction) {
     currentTransaction.logs = [log, ...(currentTransaction.logs || [])];
   }
+  
+  // SEC Compliance: Store log in Firebase Firestore
+  FirebaseService.logEvent(log, currentTransaction?.id);
 };
 
 export const MockBackend = {
@@ -116,8 +120,15 @@ export const MockBackend = {
     setTimeout(() => {
       if (!currentTransaction || currentTransaction.status !== TransactionStatus.DISBURSING) return;
       
-      // Simulate Blockchain
-      addLog('DISBURSER', `Broadcasting TRC20 transfer of ₮${currentTransaction.amountUSDT} to ${currentTransaction.user.walletAddress}`);
+      if (currentTransaction.targetCcy && currentTransaction.targetCcy !== 'USDTTRC') {
+        // Simulate FixedFloat
+        addLog('DISBURSER', `Broadcasting TRC20 transfer of ₮${currentTransaction.amountUSDT} to FixedFloat`);
+        addLog('DISBURSER', `FixedFloat processing exchange to ${currentTransaction.targetAmount} ${currentTransaction.targetCcy}`);
+        addLog('DISBURSER', `FixedFloat sent ${currentTransaction.targetAmount} ${currentTransaction.targetCcy} to ${currentTransaction.user.walletAddress}`);
+      } else {
+        // Simulate Blockchain
+        addLog('DISBURSER', `Broadcasting TRC20 transfer of ₮${currentTransaction.amountUSDT} to ${currentTransaction.user.walletAddress}`);
+      }
       
       // Update Reserves
       orderBook.thbReserves += currentTransaction.amountTHB;

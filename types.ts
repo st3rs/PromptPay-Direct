@@ -25,6 +25,8 @@ export interface Transaction {
   user: UserKYC;
   amountTHB: number;
   amountUSDT: number;
+  targetCcy?: string;
+  targetAmount?: number;
   rate: number;
   status: TransactionStatus;
   timestamp: number;
@@ -54,4 +56,5 @@ export interface AppConfig {
   promptPayId: string;
   providerWallet: string;
   defaultAmountTHB: number;
+  useLiveRate: boolean;
 }
